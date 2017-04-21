@@ -1,12 +1,15 @@
 ﻿Main tasks : Clean, Build, Sign, BuildHelp, Install, Test,Publish
 Tasks can be declared several times but are executed only once
 
-Clean :
+**Clean**
+
 Executing Init
 Executing Clean
 
 
-Build :
+
+**Build**
+
 Executing Init
 Executing Clean
 Executing BeforeBuild
@@ -21,7 +24,7 @@ Executing Build
 
 
 
-BuildHelp :
+**BuildHelp**
 Executing BeforeBuildHelp
 Executing GenerateMarkdown
 Executing GenerateHelpFiles
@@ -29,7 +32,7 @@ Executing AfterBuildHelp
 Executing BuildHelp
 
 
-Test :
+**Test**
 Executing Init
 Executing Clean
 Executing BeforeBuild
@@ -44,7 +47,7 @@ Executing Build
 Executing Test
 
 
-Sign :
+**Sign**
 Executing Init
 Executing Clean
 Executing BeforeStageFiles
@@ -54,7 +57,7 @@ Executing StageFiles
 Executing Sign
 
 
-Install :
+**Install**
 Executing Init
 Executing Clean
 Executing BeforeBuild
@@ -81,7 +84,7 @@ Executing AfterInstall
 Executing Install
 
 
-Publish :
+**Publish**
 Executing Init
 Executing Clean
 Executing BeforeBuild
