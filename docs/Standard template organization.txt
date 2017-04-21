@@ -1,0 +1,25 @@
+﻿Todo : références de ces noms de répertoire codées en dur dans le script de build ?
+ModuleName\
+    Assets\
+    Docs\
+        en-US\
+          about_modulename.help.txt
+          modulename-help.xml
+    ModuleName\
+        Bin\
+        Public\
+        Private\
+        Setup\
+        ModuleName.psd1
+        ModuleName.psm1
+    Tests\
+    Demos\
+    Tools\
+    Release\
+    .gitignore
+    CHANGELOG.md
+    LICENSE.txt
+    README.md
+    appveyor.yml
+    build.ps1
+    psake.ps1
