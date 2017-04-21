@@ -1,4 +1,5 @@
 ﻿Main tasks : Clean, Build, Sign, BuildHelp, Install, Test,Publish
+
 Tasks can be declared several times but are executed only once
 
 **Clean**
