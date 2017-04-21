@@ -1,5 +1,5 @@
-﻿param($psakeScriptToDraw,$Keyname)
-#adapté de https://github.com/fschwiet/PsakeViz
+﻿param($Path,$Keyname)
+#adapted from https://github.com/fschwiet/PsakeViz
 
  $Result=[System.Collections.Arraylist]::New()
 
@@ -15,8 +15,8 @@
     }
 
     function Task {
-      # Construit la liste des tâches d'après les lignes d'appel contenues dans le script à 'analyser'
-      # Aucun code n'est exécuté
+      #Constructs the list of tasks according to the call lines contained in the script to be analyzed
+      #No code is executed
       [CmdletBinding()]
       param(
           [Parameter(Position=0,Mandatory=1)][string]$name = $null,
@@ -50,7 +50,7 @@
     set-location $psakeScript.Directory
     
     try {
-         #exécute le code Psake et
+         #run the Psake code
         & (gi $psakeScript)
     } finally {
         set-location $originalLocation
@@ -61,7 +61,7 @@
  function VisitTask {
   param($TaskName)
   
-  Write-debug "visit Task[$TaskName]" 
+  Write-debug "Visit Task[$TaskName]" 
   Foreach ($CurrentTaskName in $Tasks.$TaskName) #todo name scope
   {
     if ($CurrentTaskName.Depends -is [String[]])
@@ -77,19 +77,19 @@
 
       } 
     }
-    else {write-error "Type inconnu ?  $($CurrentTaskName.Depends.gettype().Fullname)"} 
+    else {write-error "Type unknown ?  $($CurrentTaskName.Depends.gettype().Fullname)"} 
   } 
  }#VisitTask  
 
-$psakeScriptFileinfo = (New-Object -TypeName "System.IO.FileInfo" -ArgumentList (gi $psakeScriptToDraw))
+$psakeScriptFileinfo = (New-Object -TypeName "System.IO.FileInfo" -ArgumentList (gi $Path))
 $Tasks=LoadTasks $psakeScriptFileinfo
 if (! $Tasks.Contains($TaskName))
-{ Write-Error "La clé ¨TaskName n'existe pas." }
+{ Write-Error "The key '$TaskName' does not exist." }
 else 
 {
-  VisitTask $Keyname
-  $Result.Add($Keyname)  >$null
+  VisitTask $MainTaskName
+  $Result.Add($MainTaskName)  >$null
   return ,$Result
 }
-#.\VisualizePsakeScript.ps1 'C:\Temp\Plaster-master\examples\NewModule\build.psake.ps1'  
+#.\VisualizePsakeScript.ps1  -Path 'C:\Temp\Plaster-master\examples\NewModule\build.psake.ps1' -MainTaskName 'Build'  
 
