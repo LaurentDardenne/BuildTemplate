@@ -1,9 +1,75 @@
-###############################################################################
+﻿###############################################################################
 # Customize these properties and tasks for your module.
 ###############################################################################
 
+function GetPowershellGetPath {
+ #extracted from PowerShellGet/PSModule.psm1 
+
+  $IsInbox = $PSHOME.EndsWith('\WindowsPowerShell\v1.0', [System.StringComparison]::OrdinalIgnoreCase)
+  if($IsInbox)
+  {
+      $ProgramFilesPSPath = Microsoft.PowerShell.Management\Join-Path -Path $env:ProgramFiles -ChildPath "WindowsPowerShell"
+  }
+  else
+  {
+      $ProgramFilesPSPath = $PSHome
+  }
+  
+  if($IsInbox)
+  {
+      try
+      {
+          $MyDocumentsFolderPath = [Environment]::GetFolderPath("MyDocuments")
+      }
+      catch
+      {
+          $MyDocumentsFolderPath = $null
+      }
+  
+      $MyDocumentsPSPath = if($MyDocumentsFolderPath)
+                                  {
+                                      Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsFolderPath -ChildPath "WindowsPowerShell"
+                                  } 
+                                  else
+                                  {
+                                      Microsoft.PowerShell.Management\Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell"
+                                  }
+  }
+  elseif($IsWindows)
+  {
+      $MyDocumentsPSPath = Microsoft.PowerShell.Management\Join-Path -Path $HOME -ChildPath 'Documents\PowerShell'
+  }
+  else
+  {
+      $MyDocumentsPSPath = Microsoft.PowerShell.Management\Join-Path -Path $HOME -ChildPath ".local/share/powershell"
+  }
+  
+  $Result=@{}
+
+  $Result.AllUsersModules = Microsoft.PowerShell.Management\Join-Path -Path $ProgramFilesPSPath -ChildPath "Modules"
+  $Result.AllUsersScripts = Microsoft.PowerShell.Management\Join-Path -Path $ProgramFilesPSPath -ChildPath "Scripts"
+   
+  $Result.CurrentUserModules = Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsPSPath -ChildPath "Modules"
+  $Result.CurrentUserScripts = Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsPSPath -ChildPath "Scripts"
+  return $Result         
+}
+
+function GetModulePath {
+ param($Name)
+  $List=@(Get-Module $Name -ListAvailable)
+  if ($List.Count -eq 0)
+  { Throw "Module '$Name' not found."} 
+   #Last version
+  $Llist[0].Modulebase
+}
+
 Properties {
     # ----------------------- Basic properties --------------------------------
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $ProjectName= 'Log4Posh'
+    
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $ProjectUrl= 'https://github.com/LaurentDardenne/Log4Posh.git'
 
     # The root directories for the module's docs, src and test.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
@@ -56,6 +122,35 @@ Properties {
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $ScriptAnalyzerSettingsPath = "$PSScriptRoot\ScriptAnalyzerSettings.psd1"
 
+    # Module names for additionnale custom rule
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    [String[]]$PSSACustomRules=@(
+      GetModulelePath -Name OptimizationRules
+      GetModulelePath -Name PSParameterSetRules
+    ) 
+
+    #MeasureLocalizedData
+     #Full path of the module to control
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $LocalizedDataModule="$SrcRootDir\Log4Posh.psm1"
+
+     #Full path of the function  to control. If $null is specified only the primary module is analyzed. 
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $LocalizedDataFunctions=$null
+
+    #Cultures names to test the localized resources file.
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $CulturesLocalizedData='en-US','fr-FR' 
+
+      # ------------------- Controls files encoding ---------------------------
+    #todo mofifier Test-BomFile.ps1
+    # Cmds.Template.ps1 -> Helps module
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+     $Params=@{
+      Include=@('*.ps1','*.psm1','*.psd1','*.ps1xml','*.xml','*.txt');
+      Exclude=@('*.bak','*.exe','*.dll','*.Cmds.Template.ps1','*.Datas.Template.ps1','*.csproj.FileListAbsolute.txt')
+     }
+ 
     # ------------------- Script signing properties ---------------------------
 
     # Set to $true if you want to sign your scripts. You will need to have a code-signing certificate.
@@ -107,28 +202,33 @@ Properties {
 
     # -------------------- Publishing properties ------------------------------
 
-    # Your NuGet API key for the PSGallery.  Leave it as $null and the first time you publish,
+    # Your NuGet API key for the nuget feed (PSGallery, Myget, Private).  Leave it as $null and the first time you publish,
     # you will be prompted to enter your API key.  The build will store the key encrypted in the
-    # settings file, so that on subsequent publishes you will no longer be prompted for the API key.
+    # $NuGetApiKeyPath file, so that on subsequent publishes you will no longer be prompted for the API key.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $NuGetApiKey = $null
 
     # Name of the repository you wish to publish to. If $null is specified the default repo (PowerShellGallery) is used.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $PublishRepository = $null
+    $PublishRepository = $RepositoryName
 
+    # Path to encrypted APIKey file.
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $NuGetApiKeyPath = "$env:LOCALAPPDATA\Plaster\SecuredBuildSettings\$ProjectName-$PublishRepository-ApiKey.clixml"
+                                        
     # Path to the release notes file.  Set to $null if the release notes reside in the manifest file.
     # The contents of this file are used during publishing for the ReleaseNotes parameter.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $ReleaseNotesPath = "$PSScriptRoot\ReleaseNotes.md"
-
+    
+  
     # ----------------------- Misc properties ---------------------------------
 
     # In addition, PFX certificates are supported in an interactive scenario only,
     # as a way to import a certificate into the user personal store for later use.
     # This can be provided using the CertPfxPath parameter. PFX passwords will not be stored.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $SettingsPath = "$env:LOCALAPPDATA\Plaster\NewModuleTemplate\SecuredBuildSettings.clixml"
+    $SettingsPath = "$env:LOCALAPPDATA\Plaster\SecuredBuildSettings\$ProjectName.clixml"
 
     # Specifies an output file path to send to Invoke-Pester's -OutputFile parameter.
     # This is typically used to write out test results so that they can be sent to a CI
@@ -140,18 +240,106 @@ Properties {
     # a path.  This parameter is passed through to Invoke-Pester's -OutputFormat parameter.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $TestOutputFormat = "NUnitXml"
+    
+    # Specifies the paths of the installed scripts
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $PSGetPath=GetPowershellGetPath
+    
+    # Execute or nor 'TestBOM' task
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $isTestBom=$true
 }
 
 ###############################################################################
 # Customize these tasks for performing operations before and/or after file staging.
 ###############################################################################
 
-# Executes before the StageFiles task.
-Task BeforeStageFiles {
+Task RemoveConditionnal {
+#todo copy de VCS vers temp puis vers Outdir
+#1- Liste des fichiers traités , dans ce cas exclue de la copy (déjà fait)
+#2- on traite tous les fichiers dans ce cas $OutDir est le répertoire temporaire servant à cette tâche ?
+#Traite les pseudo directives de parsing conditionnelle   
+  
+   $VerbosePreference='Continue'
+   ."${env:ProgramFiles}\WindowsPowerShell\Scripts\Remove-Conditionnal.ps1"
+   Write-debug "Configuration=$Configuration"
+   Write-Warning "Traite la configuration $Configuration"
+   Get-ChildItem  "$PSScriptAnalyzerRulesVcs\Modules\ParameterSetRules\ParameterSetRules.psm1",
+       "$PSScriptAnalyzerRulesVcs\Modules\ParameterSetRules\ParameterSetRules.psd1"|
+    Foreach-Object {
+      $Source=$_
+      Write-Verbose "Parse :$($_.FullName)"
+      $CurrentFileName="$PSScriptAnalyzerRulesDelivery\$($_.Name)"
+      Write-Warning "CurrentFileName=$CurrentFileName"
+      if ($Configuration -eq "Release")
+      { 
+         #Supprime les lignes de code de Debug et de test
+         #On traite une directive et supprime les lignes demandées. 
+         #On inclut les fichiers.       
+        Get-Content -Path $_ -ReadCount 0 -Encoding UTF8|
+         Remove-Conditionnal -ConditionnalsKeyWord 'DEBUG' -Include -Remove -Container $Source|
+         Remove-Conditionnal -Clean| 
+         Set-Content -Path $CurrentFileName -Force -Encoding UTF8        
+      }
+      else
+      { 
+         #On ne traite aucune directive et on ne supprime rien. 
+         #On inclut uniquement les fichiers.
+
+         #Directive inexistante et on ne supprime pas les directives
+         #sinon cela génére trop de différences en cas de comparaison de fichier
+        Get-Content -Path $_ -ReadCount 0 -Encoding UTF8|
+         Remove-Conditionnal -ConditionnalsKeyWord 'NODEBUG' -Include -Container $Source|
+         Set-Content -Path $CurrentFileName -Force -Encoding UTF8       
+      }
+    }#foreach
 }
 
+
+# Executes before the StageFiles task.
+Task BeforeStageFiles -Depends RemoveConditionnal{
+}
+
+#Verifying file encoding BEFORE generation
+Task TestBOM -Precondition { $isTestBom } -requiredVariables PSGetPath {
+
+#La régle 'UseBOMForUnicodeEncodedFile' de PSScripAnalyzer s'assure que les fichiers qui
+# ne sont pas encodés ASCII ont un BOM (cette régle est trop 'permissive' ici).
+#On ne veut livrer que des fichiers UTF-8.
+
+  Write-Host "Validation de l'encodage des fichiers du répertoire : $OutDir" #todo nom du projet ou nom du module ?
+  
+  Import-Module DTW.PS.FileSystem
+  
+  $InvalidFiles=@(&"$($PSGetPath.AllUsersScripts)\Test-BOMFile.ps1" $OutDir)  
+  if ($InvalidFiles.Count -ne 0)
+  { 
+     $InvalidFiles |Format-List *
+     Throw "Des fichiers ne sont pas encodés en UTF8 ou sont codés BigEndian."
+  }
+} 
+
+Task TestLocalizedData -ContinueOnError {
+    Write-warning "Todo TestLocalizedData"
+    return
+    Import-module MeasureLocalizedData
+
+    $Module='.\Plaster.psm1' #todo
+    $Functions=@(
+    '.\InvokePlaster.ps1',
+    '.\TestPlasterManifest.ps1'
+    '.\NewPlasterManifest.ps1'
+    )
+    if ($null -eq $LocalizedDataFunctions)
+    {$Result ='en-US','fr-FR'|Measure-ImportLocalizedData -Primary $LocalizedDataModule }
+    else
+    {$Result ='en-US','fr-FR'|Measure-ImportLocalizedData -Primary $LocalizedDataModule -Secondary $LocalizedDataFunctions}
+    if ($Result.Count -ne 0)
+    { throw 'One or more MeasureLocalizedData errors were found. Build cannot continue!' }
+}     
+
 # Executes after the StageFiles task.
-Task AfterStageFiles {
+Task AfterStageFiles -Depends TestBOM, TestLocalizedData {
 }
 
 ###############################################################################
@@ -162,8 +350,21 @@ Task AfterStageFiles {
 Task BeforeBuild {
 }
 
+# #Verifying file encoding AFTER generation
+# Task TestBOMAfterAll -Precondition { $isTestBom } -requiredVariables PSGetPath { {
+#   Import-Module DTW.PS.FileSystem
+
+#   Write-Host "Validation de l'encodage des fichiers du répertoire : $OutDir""
+#   $InvalidFiles=@(&"$($PSGetPath.AllUsersScripts)\Test-BOMFile.ps1" $OutDir)
+#   if ($InvalidFiles.Count -ne 0)
+#   { 
+#      $InvalidFiles |Format-List *
+#      Throw "Des fichiers ne sont pas encodés en UTF8 ou sont codés BigEndian."
+#   }
+# } #TestBOMFinal
+
 # Executes after the Build task.
-Task AfterBuild {
+Task AfterBuild  -Depends TestBOMAfterAll {
 }
 
 ###############################################################################
@@ -225,3 +426,7 @@ Task BeforePublish {
 # Executes after the Publish task.
 Task AfterPublish {
 }
+
+#todo
+#  publier les test : Update-AppveyorTest -Name "PsScriptAnalyzer" -Outcome Passed
+#  publier le résultat du build sur devOttoMatt ( Push-AppveyorArtifact $_.FullName }

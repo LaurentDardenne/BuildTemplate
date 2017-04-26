@@ -17,19 +17,17 @@ function Set-CommonDependency{
   # La tâche de build doit pointer sur ces scripts 
   #user : "${env:USERPROFILE}\Documents\WindowsPowerShell\Scripts"
   #all : "${env:ProgramFiles}\WindowsPowerShell\Scripts
-  'Replace-String','Lock-File','Remove-Conditionnal',
-  'Show-BalloonTip','Test-BOMFile','Using-Culture'|
+  'Lock-File', 'Test-BOMFile','Using-Culture'|
     Foreach {
       #Install-Script ne fonctionne pas avec Myget
       #Mais Install-Module installe le script %-)
     Install-Module -name "$_" -Repository OttoMatt -Scope AllUsers 
     }
   #Nuspec posséde une dépendance sur XMLObject
-  'Log4Posh','DTW.PS.FileSystem','MeasureLocalizedData','PSNuspec' |
+  'Log4Posh','DTW.PS.FileSystem','MeasureLocalizedData'|
   Foreach {
     Install-Module -name $_ -Repository OttoMatt -Scope AllUsers
   }
 }
 Set-CommonDependency
-$PSGalleryPublishUri = 'https://www.myget.org/F/ottomatt/api/v2/package'
-$PSGallerySourceUri = 'https://www.myget.org/F/ottomatt/api/v2'
+

@@ -1,5 +1,5 @@
-#Requires -Modules psake
-
+﻿#Requires -Modules psake
+ 
 ##############################################################################
 # DO NOT MODIFY THIS FILE!  Modify build.settings.ps1 instead.
 ##############################################################################
@@ -30,7 +30,7 @@
 # the $PublishRepository property to the name of an alternate repository.
 # Note: the Publish task requires that the Test task execute without failures.
 #
-# You can exeute a specific task, such as the Test task by running the
+# You can execute a specific task, such as the Test task by running the
 # following command:
 #
 # PS C:\> invoke-psake build.psake.ps1 -taskList Test
@@ -56,7 +56,7 @@
 ###############################################################################
 # Dot source the user's customized properties and extension tasks.
 ###############################################################################
-. $PSScriptRoot\build.settings.ps1
+. $PSScriptRoot\build.settings.ps1 
 
 ###############################################################################
 # Private properties.
@@ -130,7 +130,8 @@ Task Analyze -depends StageFiles `
 
     "ScriptAnalysisFailBuildOnSeverityLevel set to: $ScriptAnalysisFailBuildOnSeverityLevel"
 
-    $analysisResult = Invoke-ScriptAnalyzer -Path $ModuleOutDir -Settings $ScriptAnalyzerSettingsPath -Recurse -Verbose:$VerbosePreference
+    #TODO next version PSSA https://github.com/PowerShell/PSScriptAnalyzer/issues/675 
+    $analysisResult = Invoke-ScriptAnalyzer -Path $ModuleOutDir -Settings $ScriptAnalyzerSettingsPath -CustomRulePath $PSSACustomRules  -Recurse -Verbose:$VerbosePreference
     $analysisResult | Format-Table
     switch ($ScriptAnalysisFailBuildOnSeverityLevel) {
         'None' {
@@ -442,19 +443,19 @@ Task CorePublish -requiredVariables SettingsPath, ModuleOutDir {
     if ($NuGetApiKey) {
         "Using script embedded NuGetApiKey"
     }
-    elseif ($NuGetApiKey = GetSetting -Path $SettingsPath -Key NuGetApiKey) {
+    elseif ($NuGetApiKey = GetSetting -Path $NuGetApiKeyPath -Key NuGetApiKey) { 
         "Using stored NuGetApiKey"
     }
     else {
         $promptForKeyCredParams = @{
-            DestinationPath = $SettingsPath
+            DestinationPath = $NuGetApiKeyPath
             Message         = 'Enter your NuGet API key in the password field'
             Key             = 'NuGetApiKey'
         }
 
         $cred = PromptUserForCredentialAndStorePassword @promptForKeyCredParams
         $NuGetApiKey = $cred.GetNetworkCredential().Password
-        "The NuGetApiKey has been stored in $SettingsPath"
+        "The NuGetApiKey has been stored in $NuGetApiKeyPath"
     }
 
     $publishParams = @{
@@ -485,29 +486,31 @@ Task ? -description 'Lists the available tasks' {
     $psake.context.Peek().Tasks.Keys | Sort-Object
 }
 
-Task RemoveApiKey -requiredVariables SettingsPath {
-    if (GetSetting -Path $SettingsPath -Key NuGetApiKey) {
-        RemoveSetting -Path $SettingsPath -Key NuGetApiKey
+Task RemoveApiKey -requiredVariables NuGetApiKeyPath {
+ #Delete the file instead ?
+ #todo test du comportement avec un fichier sans cette clé
+    if (GetSetting -Path $NuGetApiKeyPath -Key NuGetApiKey) {
+        RemoveSetting -Path $NuGetApiKeyPath -Key NuGetApiKey
     }
 }
 
-Task StoreApiKey -requiredVariables SettingsPath {
+Task StoreApiKey -requiredVariables NuGetApiKeyPath {
     $promptForKeyCredParams = @{
-        DestinationPath = $SettingsPath
+        DestinationPath = $NuGetApiKeyPath
         Message         = 'Enter your NuGet API key in the password field'
         Key             = 'NuGetApiKey'
     }
 
     PromptUserForCredentialAndStorePassword @promptForKeyCredParams
-    "The NuGetApiKey has been stored in $SettingsPath"
+    "The NuGetApiKey has been stored in $NuGetApiKeyPath"
 }
 
-Task ShowApiKey -requiredVariables SettingsPath {
+Task ShowApiKey -requiredVariables NuGetApiKeyPath {
     $OFS = ""
     if ($NuGetApiKey) {
         "The embedded (partial) NuGetApiKey is: $($NuGetApiKey[0..7])"
     }
-    elseif ($NuGetApiKey = GetSetting -Path $SettingsPath -Key NuGetApiKey) {
+    elseif ($NuGetApiKey = GetSetting -Path $NuGetApiKeyPath -Key NuGetApiKey) {
         "The stored (partial) NuGetApiKey is: $($NuGetApiKey[0..7])"
     }
     else {
@@ -518,11 +521,11 @@ Task ShowApiKey -requiredVariables SettingsPath {
     "To see the full key, use the task 'ShowFullApiKey'"
 }
 
-Task ShowFullApiKey -requiredVariables SettingsPath {
+Task ShowFullApiKey -requiredVariables NuGetApiKeyPath {
     if ($NuGetApiKey) {
         "The embedded NuGetApiKey is: $NuGetApiKey"
     }
-    elseif ($NuGetApiKey = GetSetting -Path $SettingsPath -Key NuGetApiKey) {
+    elseif ($NuGetApiKey = GetSetting -Path $NuGetApiKeyPath -Key NuGetApiKey) {
         "The stored NuGetApiKey is: $NuGetApiKey"
     }
     else {

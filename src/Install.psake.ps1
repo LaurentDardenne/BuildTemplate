@@ -1,4 +1,5 @@
-﻿# J'installe un nouveau poste (IC ou nouveau poste de dev)
+﻿#Install.psake.ps1
+# J'installe un nouveau poste (IC ou nouveau poste de dev)
 # ou je met à jour le poste local déjà installé
 
 # Les versions des modules installées sur l'IC (Appveyor) et celles installées sur le poste de dev peuvent 
@@ -7,23 +8,10 @@
 #Install ou met à jour les prérequis
 #Appveyor utilisera tjr la dernière version
 
-Properties { 
- $PSGallery=@{
-   Modules=@('Pester','PsScriptAnalyzer')
- }
- $MyGet=@{
-                        #PSNuspec posséde une dépendance sur XMLObject
-   Modules=@('Log4Posh','PSNuspec','MeasureLocalizedData','DTW.PS.FileSystem',
-              #Publish-Script fonctionne avec Myget
-              #Install-Script ne fonctionne pas avec Myget
-              #Mais Install-Module installe le script %-) 
-              #TODO chemin similaire, mais celui des script un est terminé par '\'
-              # https://github.com/PowerShell/PowerShellGet/issues/76#issuecomment-275099482
-             'Edit-String','Lock-File','Remove-Conditionnal','Test-BOMFile','Using-Culture')
-              #Install scripts into "${env:ProgramFiles}\WindowsPowerShell\Scripts"
-
- }
-}
+###############################################################################
+# Dot source the user's customized properties and extension tasks.
+###############################################################################
+. $PSScriptRoot\Install.settings.ps1
 
 Task default -Depends Install,Update
 
@@ -41,19 +29,17 @@ Task Install -Depends RegisterPSRepository -Precondition { $Mode -eq  'Install'}
 }
 
 Task RegisterPSRepository {
- $MyGetPublishUri = 'https://www.myget.org/F/ottomatt/api/v2/package'
- $MyGetSourceUri = 'https://www.myget.org/F/ottomatt/api/v2'
- 
- $DEV_MyGetPublishUri = 'https://www.myget.org/F/devottomatt/api/v2/package'
- $DEV_MyGetSourceUri = 'https://www.myget.org/F/devottomatt/api/v2'
- 
+
  try{
   Get-PSRepository OttoMatt -EA Stop >$null   
  } catch {
    if ($_.CategoryInfo.Category -ne 'ObjectNotFound')
    { throw $_ }
    else
-   { Register-PSRepository -Name OttoMatt -SourceLocation $MyGetSourceUri -PublishLocation $MyGetPublishUri -InstallationPolicy Trusted }
+   {   
+     Register-PSRepository -Name OttoMatt -SourceLocation $MyGetSourceUri -PublishLocation $MyGetPublishUri `
+                           -ScriptSourceLocation "$MyGetSourceUri\" -ScriptPublishLocation $MyGetSourceUri -InstallationPolicy Trusted 
+    }
  }
     
  try{
@@ -62,7 +48,9 @@ Task RegisterPSRepository {
    if ($_.CategoryInfo.Category -ne 'ObjectNotFound')
    { throw $_ }
    else
-   { Register-PSRepository -Name DevOttoMatt -SourceLocation $DEV_MyGetSourceUri -PublishLocation $DEV_MyGetPublishUri -InstallationPolicy Trusted }
+   { Register-PSRepository -Name DevOttoMatt -SourceLocation $DEV_MyGetSourceUri -PublishLocation $DEV_MyGetPublishUri `
+                           -ScriptSourceLocation "$DEV_MyGetSourceUri\" -ScriptPublishLocation $DEV_MyGetPublishUri -InstallationPolicy Trusted 
+   }
  }
 }
 
