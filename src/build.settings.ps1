@@ -143,7 +143,7 @@ Properties {
     $CulturesLocalizedData='en-US','fr-FR' 
 
       # ------------------- Controls files encoding ---------------------------
-    #todo mofifier Test-BomFile.ps1
+    #todo modifier Test-BomFile.ps1
     # Cmds.Template.ps1 -> Helps module
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
      $Params=@{
@@ -208,13 +208,13 @@ Properties {
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $NuGetApiKey = $null
 
-    # Name of the repository you wish to publish to. If $null is specified the default repo (PowerShellGallery) is used.
+    # Name of the repository you wish to publish to.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $PublishRepository = $RepositoryName
 
     # Path to encrypted APIKey file.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $NuGetApiKeyPath = "$env:LOCALAPPDATA\Plaster\SecuredBuildSettings\$ProjectName-$PublishRepository-ApiKey.clixml"
+    $NuGetApiKeyPath = "$env:LOCALAPPDATA\Plaster\SecuredBuildSettings\$PublishRepository-ApiKey.clixml"
                                         
     # Path to the release notes file.  Set to $null if the release notes reside in the manifest file.
     # The contents of this file are used during publishing for the ReleaseNotes parameter.
@@ -351,7 +351,7 @@ Task BeforeBuild {
 }
 
 # #Verifying file encoding AFTER generation
-# Task TestBOMAfterAll -Precondition { $isTestBom } -requiredVariables PSGetPath { {
+Task TestBOMAfterAll -Precondition { $isTestBom } -requiredVariables PSGetPath { {
 #   Import-Module DTW.PS.FileSystem
 
 #   Write-Host "Validation de l'encodage des fichiers du répertoire : $OutDir""
