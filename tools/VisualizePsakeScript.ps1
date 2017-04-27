@@ -62,7 +62,7 @@
   param($TaskName)
   
   Write-debug "Visit Task[$TaskName]" 
-  Foreach ($CurrentTaskName in $Tasks.$TaskName) #todo name scope
+  Foreach ($CurrentTaskName in $Tasks.$TaskName)
   {
     if ($CurrentTaskName.Depends -is [String[]])
     {
@@ -71,8 +71,8 @@
         VisitTask $DependTask 
         if (! $Result.Contains($DependTask))
         {
-         Write-Debug "Add $DependTask" 
-         $Result.Add($DependTask)> $null 
+          Write-Debug "Add $DependTask" 
+          $Result.Add($DependTask)> $null 
         }
 
       } 
@@ -81,15 +81,21 @@
   } 
  }#VisitTask  
 
+#  todo -List
+#  Task ? -description 'Lists the available tasks' {
+#     "Available tasks:"
+#     $psake.context.Peek().Tasks.Keys | Sort-Object
+# }
+
 $psakeScriptFileinfo = (New-Object -TypeName "System.IO.FileInfo" -ArgumentList (gi $Path))
 $Tasks=LoadTasks $psakeScriptFileinfo
-if (! $Tasks.Contains($TaskName))
-{ Write-Error "The key '$TaskName' does not exist." }
+if (! $Tasks.Contains($Keyname))
+{ Write-Error "The key '$Keyname' does not exist." }
 else 
 {
-  VisitTask $MainTaskName
-  $Result.Add($MainTaskName)  >$null
+  VisitTask $Keyname
+  $Result.Add($Keyname)  >$null
   return ,$Result
 }
-#.\VisualizePsakeScript.ps1  -Path 'C:\Temp\Plaster-master\examples\NewModule\build.psake.ps1' -MainTaskName 'Build'  
+#.\VisualizePsakeScript.ps1  -Path 'C:\Temp\Plaster-master\examples\NewModule\build.psake.ps1' -Keyname 'Build'  
 
