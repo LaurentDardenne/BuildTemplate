@@ -44,13 +44,14 @@ function GetPowershellGetPath {
       $MyDocumentsPSPath = Microsoft.PowerShell.Management\Join-Path -Path $HOME -ChildPath ".local/share/powershell"
   }
   
-  $Result=@{}
+  $Result=[PSCustomObject]@{
 
-  $Result.AllUsersModules = Microsoft.PowerShell.Management\Join-Path -Path $ProgramFilesPSPath -ChildPath "Modules"
-  $Result.AllUsersScripts = Microsoft.PowerShell.Management\Join-Path -Path $ProgramFilesPSPath -ChildPath "Scripts"
+   AllUsersModules = Microsoft.PowerShell.Management\Join-Path -Path $ProgramFilesPSPath -ChildPath "Modules"
+   AllUsersScripts = Microsoft.PowerShell.Management\Join-Path -Path $ProgramFilesPSPath -ChildPath "Scripts"
    
-  $Result.CurrentUserModules = Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsPSPath -ChildPath "Modules"
-  $Result.CurrentUserScripts = Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsPSPath -ChildPath "Scripts"
+   CurrentUserModules = Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsPSPath -ChildPath "Modules"
+   CurrentUserScripts = Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsPSPath -ChildPath "Scripts"
+  }
   return $Result         
 }
 
@@ -61,6 +62,61 @@ function GetModulePath {
   { Throw "Module '$Name' not found."} 
    #Last version
   $Llist[0].Modulebase
+}
+
+function New-TemporaryDirectory {
+    $parent = [System.IO.Path]::GetTempPath()
+    [string] $name = [System.Guid]::NewGuid()
+    New-Item -ItemType Directory -Path (Join-Path $parent $name)
+}
+
+function Test-BOMFile{
+  param (
+    [Parameter(mandatory=$true)]
+    $Path
+   )
+   
+    $Params=@{
+      Include=@('*.ps1','*.psm1','*.psd1','*.ps1xml','*.xml','*.txt');
+      Exclude=@('*.bak','*.exe','*.dll')
+    }
+            
+    Get-ChildItem -Path $Path -Recurse @Params |
+        Where-Object { (-not $_.PSisContainer) -and ($_.Length -gt 0)}| 
+        ForEach-Object  {
+        Write-Verbose "Test BOM for '$($_.FullName)'"
+        # create storage object
+        $EncodingInfo = 1 | Select FileName,Encoding,BomFound,Endian
+        # store file base name (remove extension so easier to read)
+        $EncodingInfo.FileName = $_.FullName
+        # get full encoding object
+        $Encoding = Get-DTWFileEncoding $_.FullName
+        # store encoding type name
+        $EncodingInfo.Encoding = $EncodingTypeName = $Encoding.ToString().SubString($Encoding.ToString().LastIndexOf(".") + 1)
+        # store whether or not BOM found
+        $EncodingInfo.BomFound = "$($Encoding.GetPreamble())" -ne "" 
+        $EncodingInfo.Endian = ""
+        # if Unicode, get big or little endian
+        if ($Encoding.GetType().FullName -eq ([System.Text.Encoding]::Unicode.GetType().FullName)) {
+            if ($EncodingInfo.BomFound) {
+            if ($Encoding.GetPreamble()[0] -eq 254) {
+                $EncodingInfo.Endian = "Big"
+            } else {
+                $EncodingInfo.Endian = "Little"
+            }
+            } else {
+            $FirstByte = Get-Content -Path $_.FullName -Encoding byte -ReadCount 1 -TotalCount 1
+            if ($FirstByte -eq 0) {
+                $EncodingInfo.Endian = "Big"
+            } else {
+                $EncodingInfo.Endian = "Little"
+            }
+            }
+        }
+        $EncodingInfo
+        }|
+        #PS v2 Big Endian plante la signature de script
+        Where-Object {($_.Encoding -ne "UTF8Encoding") -or ($_.Endian -eq "Big")}
 }
 
 Properties {
@@ -101,7 +157,7 @@ Properties {
     # Typically you wouldn't put any file under the src dir unless the file was going to ship with
     # the module. However, if there are such files, add their $SrcRootDir relative paths to the exclude list.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $Exclude = @()
+    $Exclude = @('Log4Posh.psm1','Log4Posh.psd1')
 
     # ------------------ Script analysis properties ---------------------------
 
@@ -134,22 +190,13 @@ Properties {
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $LocalizedDataModule="$SrcRootDir\Log4Posh.psm1"
 
-     #Full path of the function  to control. If $null is specified only the primary module is analyzed. 
+     #Full path of the function to control. If $null is specified only the primary module is analyzed. 
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $LocalizedDataFunctions=$null
 
     #Cultures names to test the localized resources file.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $CulturesLocalizedData='en-US','fr-FR' 
-
-      # ------------------- Controls files encoding ---------------------------
-    #todo modifier Test-BomFile.ps1
-    # Cmds.Template.ps1 -> Helps module
-    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-     $Params=@{
-      Include=@('*.ps1','*.psm1','*.psd1','*.ps1xml','*.xml','*.txt');
-      Exclude=@('*.bak','*.exe','*.dll','*.Cmds.Template.ps1','*.Datas.Template.ps1','*.csproj.FileListAbsolute.txt')
-     }
  
     # ------------------- Script signing properties ---------------------------
 
@@ -243,11 +290,19 @@ Properties {
     
     # Specifies the paths of the installed scripts
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $PSGetPath=GetPowershellGetPath
+    $PSGetInstalledPath=GetPowershellGetPath
     
     # Execute or nor 'TestBOM' task
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $isTestBom=$true
+
+    # Used by Edit-Template inside the 'RemoveConditionnal' task.
+    # Valid values are 'Debug' or 'Release'
+    # 'Release' : remove the debugging/trace lines, include file, expand scriptblock, clean all directives
+    # 'Debug' : do not remove
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $BuildConfiguration='Release'
+
 }
 
 ###############################################################################
@@ -255,43 +310,49 @@ Properties {
 ###############################################################################
 
 Task RemoveConditionnal {
-#todo copy de VCS vers temp puis vers Outdir
-#1- Liste des fichiers traités , dans ce cas exclue de la copy (déjà fait)
-#2- on traite tous les fichiers dans ce cas $OutDir est le répertoire temporaire servant à cette tâche ?
 #Traite les pseudo directives de parsing conditionnelle   
   
    $VerbosePreference='Continue'
-   ."${env:ProgramFiles}\WindowsPowerShell\Scripts\Remove-Conditionnal.ps1"
-   Write-debug "Configuration=$Configuration"
-   Write-Warning "Traite la configuration $Configuration"
-   Get-ChildItem  "$PSScriptAnalyzerRulesVcs\Modules\ParameterSetRules\ParameterSetRules.psm1",
-       "$PSScriptAnalyzerRulesVcs\Modules\ParameterSetRules\ParameterSetRules.psd1"|
+   Import-Module Template
+   $TempDirectory=New-TemporaryDirectory
+   $ModuleOutDir="$OutDir\$ModuleName"
+
+   Write-Verbose "Build with '$BuildConfiguration'"
+   Get-ChildItem  "$SrcRootDir\Log4Posh.psm1","$SrcRootDir\Log4Posh.psd1"|
     Foreach-Object {
       $Source=$_
-      Write-Verbose "Parse :$($_.FullName)"
-      $CurrentFileName="$PSScriptAnalyzerRulesDelivery\$($_.Name)"
-      Write-Warning "CurrentFileName=$CurrentFileName"
-      if ($Configuration -eq "Release")
+      $TempFileName="$TempDirectory\$($Source.Name)"
+      Write-Verbose "Edit : $($Source.FullName)"
+      Write-Verbose " to  : $TempFileName"
+      if ($BuildConfiguration -eq 'Release')
       { 
          #Supprime les lignes de code de Debug et de test
          #On traite une directive et supprime les lignes demandées. 
          #On inclut les fichiers.       
-        Get-Content -Path $_ -ReadCount 0 -Encoding UTF8|
-         Remove-Conditionnal -ConditionnalsKeyWord 'DEBUG' -Include -Remove -Container $Source|
-         Remove-Conditionnal -Clean| 
-         Set-Content -Path $CurrentFileName -Force -Encoding UTF8        
+        Get-Content -Path $Source -Encoding UTF8|
+         Edit-String -Setting  $TemplateDefaultSettings|
+         ForEach-Object { $_ -split '(?m)$' }|
+         Edit-Template -ConditionnalsKeyWord 'DEBUG' -Include -Remove -Container $Source|
+         Edit-Template -Clean| 
+         Set-Content -Path $TempFileName -Force -Encoding UTF8        
       }
-      else
+      elseif ($BuildConfiguration -eq 'Debug')
       { 
          #On ne traite aucune directive et on ne supprime rien. 
          #On inclut uniquement les fichiers.
 
-         #Directive inexistante et on ne supprime pas les directives
+         #'NODEBUG' est une directive inexistante et on ne supprime pas les directives
          #sinon cela génére trop de différences en cas de comparaison de fichier
-        Get-Content -Path $_ -ReadCount 0 -Encoding UTF8|
-         Remove-Conditionnal -ConditionnalsKeyWord 'NODEBUG' -Include -Container $Source|
-         Set-Content -Path $CurrentFileName -Force -Encoding UTF8       
+        Get-Content -Path $Source -ReadCount 0 -Encoding UTF8|
+         Edit-String -Setting  $TemplateDefaultSettings|
+         ForEach-Object { $_ -split '(?m)$' }|
+         Edit-Template -ConditionnalsKeyWord 'NODEBUG' -Include -Container $Source|
+         Set-Content -Path $TempFileName -Force -Encoding UTF8       
       }
+      else
+      { throw "Invalid configuration name '$BuildConfiguration'" }
+     
+      Copy-Item -Path $TempDirectory\* -Destination $ModuleOutDir -Recurse -Verbose:$VerbosePreference
     }#foreach
 }
 
@@ -301,17 +362,16 @@ Task BeforeStageFiles -Depends RemoveConditionnal{
 }
 
 #Verifying file encoding BEFORE generation
-Task TestBOM -Precondition { $isTestBom } -requiredVariables PSGetPath {
-
+Task TestBOM -Precondition { $isTestBom } -requiredVariables PSGetInstalledPath {
 #La régle 'UseBOMForUnicodeEncodedFile' de PSScripAnalyzer s'assure que les fichiers qui
 # ne sont pas encodés ASCII ont un BOM (cette régle est trop 'permissive' ici).
 #On ne veut livrer que des fichiers UTF-8.
 
-  Write-Host "Validation de l'encodage des fichiers du répertoire : $OutDir" #todo nom du projet ou nom du module ?
+  Write-verbose "Validation de l'encodage des fichiers du répertoire : $SrcRootDir"
   
   Import-Module DTW.PS.FileSystem
   
-  $InvalidFiles=@(&"$($PSGetPath.AllUsersScripts)\Test-BOMFile.ps1" $OutDir)  
+  $InvalidFiles=Test-BOMFile.ps1 -path $SrcRootDir 
   if ($InvalidFiles.Count -ne 0)
   { 
      $InvalidFiles |Format-List *
@@ -320,22 +380,17 @@ Task TestBOM -Precondition { $isTestBom } -requiredVariables PSGetPath {
 } 
 
 Task TestLocalizedData -ContinueOnError {
-    Write-warning "Todo TestLocalizedData"
-    return
     Import-module MeasureLocalizedData
 
-    $Module='.\Plaster.psm1' #todo
-    $Functions=@(
-    '.\InvokePlaster.ps1',
-    '.\TestPlasterManifest.ps1'
-    '.\NewPlasterManifest.ps1'
-    )
     if ($null -eq $LocalizedDataFunctions)
     {$Result ='en-US','fr-FR'|Measure-ImportLocalizedData -Primary $LocalizedDataModule }
     else
     {$Result ='en-US','fr-FR'|Measure-ImportLocalizedData -Primary $LocalizedDataModule -Secondary $LocalizedDataFunctions}
     if ($Result.Count -ne 0)
-    { throw 'One or more MeasureLocalizedData errors were found. Build cannot continue!' }
+    { 
+      $Result
+      throw 'One or more MeasureLocalizedData errors were found. Build cannot continue!' 
+    }
 }     
 
 # Executes after the StageFiles task.
@@ -351,17 +406,17 @@ Task BeforeBuild {
 }
 
 # #Verifying file encoding AFTER generation
-Task TestBOMAfterAll -Precondition { $isTestBom } -requiredVariables PSGetPath { {
+Task TestBOMAfterAll -Precondition { $isTestBom } -requiredVariables PSGetInstalledPath { 
 #   Import-Module DTW.PS.FileSystem
 
 #   Write-Host "Validation de l'encodage des fichiers du répertoire : $OutDir""
-#   $InvalidFiles=@(&"$($PSGetPath.AllUsersScripts)\Test-BOMFile.ps1" $OutDir)
+#   $InvalidFiles=Test-BOMFile.ps1 -path $OutDir
 #   if ($InvalidFiles.Count -ne 0)
 #   { 
 #      $InvalidFiles |Format-List *
 #      Throw "Des fichiers ne sont pas encodés en UTF8 ou sont codés BigEndian."
 #   }
-# } #TestBOMFinal
+}
 
 # Executes after the Build task.
 Task AfterBuild  -Depends TestBOMAfterAll {
