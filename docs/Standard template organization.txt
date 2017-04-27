@@ -2,7 +2,7 @@
     Docs\ (docs du projet)
     Assets\ (utilisé lors de la publication/Setup, ex .png, .ico)
     ModuleName1\
-          src\  (on copie tout vers $Outdir)   *** supposes ici un seul module !
+          src\  
           Bin\
           Demos\
           Public\
@@ -14,8 +14,7 @@
           ModuleName1.psd1
           ModuleName1.psm1
      ModuleName2\
-         Docs\ (docs du projet)
-         src\  (on copie tout vers $Outdir)   *** supposes ici un seul module !
+         src\  
              Bin\
              Demos\
              Public\
