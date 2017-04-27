@@ -80,13 +80,8 @@ Properties {
 ###############################################################################
 Task default -depends Build
 
-Task Init -requiredVariables OutDir {
-    if (!(Test-Path -LiteralPath $OutDir)) {
-        New-Item $OutDir -ItemType Directory -Verbose:$VerbosePreference > $null
-    }
-    else {
-        Write-Verbose "$($psake.context.currentTaskName) - directory already exists '$OutDir'."
-    }
+Task Init -requiredVariables OutDir, ModuleOutDir {
+    $OutDir,$ModuleOutDir|NewDirectory -TaskName $psake.context.currentTaskName
 }
 
 Task Clean -depends Init -requiredVariables OutDir {
@@ -103,13 +98,6 @@ Task StageFiles -depends Init, Clean, BeforeStageFiles, CoreStageFiles, AfterSta
 }
 
 Task CoreStageFiles -requiredVariables ModuleOutDir, SrcRootDir {
-    if (!(Test-Path -LiteralPath $ModuleOutDir)) {
-        New-Item $ModuleOutDir -ItemType Directory -Verbose:$VerbosePreference > $null
-    }
-    else {
-        Write-Verbose "$($psake.context.currentTaskName) - directory already exists '$ModuleOutDir'."
-    }
-
     Copy-Item -Path $SrcRootDir\* -Destination $ModuleOutDir -Recurse -Exclude $Exclude -Verbose:$VerbosePreference
 }
 
@@ -693,4 +681,22 @@ function RemoveSetting {
     else {
         Write-Warning "The build setting file '$Path' has not been created yet."
     }
+}
+
+function newDirectory {
+  param (
+      [Parameter(Mandatory,ValueFromPipeline)]
+      [ValidateNotNullOrEmpty()]
+      $path,
+      
+      [Parameter(Mandatory,Position=0)]
+      [ValidateNotNullOrEmpty()]
+      $TaskName
+)
+    if (!(Test-Path -LiteralPath $Path)) {
+        New-Item $Path -ItemType Directory -Verbose:$VerbosePreference > $null
+    }
+    else {
+        Write-Verbose "$TaskName - directory already exists '$Path'."
+    }    
 }
