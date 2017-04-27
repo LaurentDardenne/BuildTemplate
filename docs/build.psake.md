@@ -26,6 +26,17 @@ Tasks can be declared several times but are executed only once
 
 
 **BuildHelp**
+- Executing Init
+- Executing Clean
+- Executing BeforeBuild
+- Executing BeforeStageFiles
+- Executing CoreStageFiles
+- Executing AfterStageFiles
+- Executing StageFiles
+- Executing Analyze
+- Executing Sign
+- Executing AfterBuild
+- Executing Build
 - Executing BeforeBuildHelp
 - Executing GenerateMarkdown
 - Executing GenerateHelpFiles
