@@ -1,0 +1,24 @@
+﻿todo clone projet /nouveau projet 
+
+Localization : + langues
+
+Variables
+
+  Setting WebPage :
+  (https://ci.appveyor.com/project/LaurentDardenne/template/settings/environment)
+    MY_APPVEYOR_GalleryName 
+  
+  https://github.com/LaurentDardenne/Template/blob/master/appveyor.yml 
+  environment:
+    MY_APPVEYOR_DevMyGetApiKey:
+      secure:   
+    MY_APPVEYOR_MyGetApiKey:
+      secure: 
+  
+1) Install
+2) publish
+Gestion des erreurs
+
+
+
+
