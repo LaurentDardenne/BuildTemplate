@@ -2,7 +2,7 @@
 <plasterManifest schemaVersion="1.0" xmlns="http://www.microsoft.com/schemas/PowerShell/Plaster/v1">
     <metadata>
         <id>817a5045-1f21-4476-892f-6cc77b5a7f24</id>
-        <name>NewBuild</name>
+        <name>OttoMattBuild</name>
         <title>New build script</title>
         <description>Scaffolds the files required for a PowerShell build.</description>
         <version>1.0.0</version>
@@ -31,6 +31,31 @@
 
     <content>
         <message>&#10;&#10;Scaffolding your PowerShell Module...&#10;&#10;&#10;</message>
+Assets
+Docs
+src
+Test
+
+appveyor.yml
+
+Publish.ps1
+build.ps1
+build.psake.ps1
+build.settings.ps1
+ScriptAnalyzerSettings.psd1
+
+CHANGELOG.md
+LICENSE.md
+releasenotes.md
+README.md
+
+Install.ps1
+Install.psake.ps1
+Install.settings.ps1
+
+
+Log4Posh.library-ms
+Log4Posh.tdl
 
         <file source='ScriptAnalyzerSettings.psd1'
               destination=''/>
@@ -47,16 +72,16 @@
         <file source='editor\VSCode\settings.json'
               destination='.vscode\settings.json' />
 
-        <requireModule name="Pester" minimumVersion="3.4.0"
+        <requireModule name="Pester" minimumVersion="4.0.3"
             message="Without Pester, you will not be able to run the provided Pester test to validate your module manifest file.`nWithout version 3.4.0, VS Code will not display Pester warnings and errors in the Problems panel."/>
 
-        <requireModule name="psake" 
+        <requireModule name="psake" minimumVersion="4.6.0"
             message="Without psake, you will not be able to run the provided build script to build and/or publish your module."/>
 
-        <requireModule name="PSScriptAnalyzer" condition='$PLASTER_PARAM_Options -contains "PSScriptAnalyzer"' minimumVersion="1.11.1"
+        <requireModule name="PSScriptAnalyzer" condition='$PLASTER_PARAM_Options -contains "PSScriptAnalyzer"' minimumVersion="1.12.0"
             message="Without PSScriptAnalyzer, you will not be able to perform script analysis, or use the provided options to control script analysis."/>
 
-        <requireModule name="platyPS" condition='$PLASTER_PARAM_Options -contains "platyPS"' minimumVersion="0.7.2"
+        <requireModule name="platyPS" condition='$PLASTER_PARAM_Options -contains "platyPS"' minimumVersion="0.7.6"
             message="Without platyPS, you will not be able to generate PowerShell external help for your module using markdown."/>
 
         <message>

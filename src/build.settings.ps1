@@ -2,8 +2,23 @@
 # Customize these properties and tasks for your module.
 ###############################################################################
 
+Function Test-CIEnvironment {
+  return (Test-Path env:APPVEYOR)
+}
+
+Function Get-ApiKeyIntoCI {
+     #Read Appveyor environment variable (encrypted)
+    Write-host "ApiKey for the configuration : '$BuildConfiguration'"
+
+    if ($BuildConfiguration -eq 'Debug')
+    { return $Env:MY_APPVEYOR_DevMyGetApiKey }
+    else
+    { return $Env:MY_APPVEYOR_MyGetApiKey }
+}
+
+
 function GetPowershellGetPath {
- #extracted from PowerShellGet/PSModule.psm1 
+ #extracted from PowerShellGet/PSModule.psm1
 
   $IsInbox = $PSHOME.EndsWith('\WindowsPowerShell\v1.0', [System.StringComparison]::OrdinalIgnoreCase)
   if($IsInbox)
@@ -14,7 +29,7 @@ function GetPowershellGetPath {
   {
       $ProgramFilesPSPath = $PSHome
   }
-  
+
   if($IsInbox)
   {
       try
@@ -25,11 +40,11 @@ function GetPowershellGetPath {
       {
           $MyDocumentsFolderPath = $null
       }
-  
+
       $MyDocumentsPSPath = if($MyDocumentsFolderPath)
                                   {
                                       Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsFolderPath -ChildPath "WindowsPowerShell"
-                                  } 
+                                  }
                                   else
                                   {
                                       Microsoft.PowerShell.Management\Join-Path -Path $env:USERPROFILE -ChildPath "Documents\WindowsPowerShell"
@@ -43,31 +58,31 @@ function GetPowershellGetPath {
   {
       $MyDocumentsPSPath = Microsoft.PowerShell.Management\Join-Path -Path $HOME -ChildPath ".local/share/powershell"
   }
-  
+
   $Result=[PSCustomObject]@{
 
    AllUsersModules = Microsoft.PowerShell.Management\Join-Path -Path $ProgramFilesPSPath -ChildPath "Modules"
    AllUsersScripts = Microsoft.PowerShell.Management\Join-Path -Path $ProgramFilesPSPath -ChildPath "Scripts"
-   
+
    CurrentUserModules = Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsPSPath -ChildPath "Modules"
    CurrentUserScripts = Microsoft.PowerShell.Management\Join-Path -Path $MyDocumentsPSPath -ChildPath "Scripts"
   }
-  return $Result         
+  return $Result
 }
 
 function GetModulePath {
  param($Name)
   $List=@(Get-Module $Name -ListAvailable)
   if ($List.Count -eq 0)
-  { Throw "Module '$Name' not found."} 
+  { Throw "Module '$Name' not found."}
    #Last version
-  $Llist[0].Modulebase
+  $List[0].Path
 }
 
 function New-TemporaryDirectory {
     $parent = [System.IO.Path]::GetTempPath()
-    [string] $name = [System.Guid]::NewGuid()
-    New-Item -ItemType Directory -Path (Join-Path $parent $name)
+    $name = [System.IO.Path]::GetRandomFileName()
+    New-Item -ItemType Directory -Path (Join-Path $parent $name) -verbose:($VerbosePreference -eq 'Continue') -EA Stop
 }
 
 function Test-BOMFile{
@@ -75,14 +90,14 @@ function Test-BOMFile{
     [Parameter(mandatory=$true)]
     $Path
    )
-   
+
     $Params=@{
       Include=@('*.ps1','*.psm1','*.psd1','*.ps1xml','*.xml','*.txt');
       Exclude=@('*.bak','*.exe','*.dll')
     }
-            
+
     Get-ChildItem -Path $Path -Recurse @Params |
-        Where-Object { (-not $_.PSisContainer) -and ($_.Length -gt 0)}| 
+        Where-Object { (-not $_.PSisContainer) -and ($_.Length -gt 0)}|
         ForEach-Object  {
         Write-Verbose "Test BOM for '$($_.FullName)'"
         # create storage object
@@ -94,7 +109,7 @@ function Test-BOMFile{
         # store encoding type name
         $EncodingInfo.Encoding = $EncodingTypeName = $Encoding.ToString().SubString($Encoding.ToString().LastIndexOf(".") + 1)
         # store whether or not BOM found
-        $EncodingInfo.BomFound = "$($Encoding.GetPreamble())" -ne "" 
+        $EncodingInfo.BomFound = "$($Encoding.GetPreamble())" -ne ""
         $EncodingInfo.Endian = ""
         # if Unicode, get big or little endian
         if ($Encoding.GetType().FullName -eq ([System.Text.Encoding]::Unicode.GetType().FullName)) {
@@ -119,13 +134,163 @@ function Test-BOMFile{
         Where-Object {($_.Encoding -ne "UTF8Encoding") -or ($_.Endian -eq "Big")}
 }
 
+Function Find-ExternalModuleDependencies {
+<#
+    .SYNOPSIS
+     Détermine, selon le repository courant, le ou les modules externes dépendant.
+     Les nom de module retiournés pourront être inséré dans la clé 'ExternalModuleDependencies' d'un manifest de module
+
+    .EXAMPLE
+     $ManifestPath='.\OptimizationRules.psd1'
+     $ModuleNames=Read-RequiredModules $ManifestPath -AsHashTable
+     $EMD=Find-ExternalModuleDependencies $ModuleNames -Repository $PublishRepository
+#>
+  Param(
+      [System.Collections.Hashtable[]] $ModuleSpecification,
+     [String] $Repository
+)
+
+ [System.Collections.Hashtable[]] $Modules=$ModuleSpecification|ForEach-Object{$_.Clone()}
+
+ $EMD=@(
+     Foreach ($Module in $Modules) {
+        try {
+        # En cas d'erreur de module introuvable, Find-Module ne propose pas son nom dans une propriété de l'exception levée,
+        # on les traite donc un par un.
+        #
+        #Note :
+        # La recherche ne peut se faire sur le GUID (FQN) mais uniquement sur le nom ET un numéro de version.
+        # Il existe donc un risque minime de collision entre 2 repositories.
+        #
+        #Scénario :
+        # On suppose que les versions de production d'un module ne sont pas dispatchées entre les repositories
+        # PSGallery : Repository principal de production. Il est toujours déclaré.
+        # MyGet     : Repository secondaire de production public ou privé. Déclaré selon les besoins.
+        # DEVMyGet  : Repository secondaire de test public ou privé. Il devrait toujours être déclaré :
+        #              Validation de la chaîne de publication, test d'intégration.
+        #
+        #Seul les modules requis (RequiredModule) qui ne sont pas external sont installés implicitement par Install-Module,
+        # ceux indiqués external (ExternalModuleDependencies) doivent l'être explicitement.
+        #Dans Powershell une dépendances externe de module ne précise pas le repository cible, mais indique que la dépendance est dans un autre repository.
+        #
+        #Si on ne précise pas le paramètre -Repository avec Install-Module, Powershell installera le premier repository hébergeant le nom du module
+        # répondant aux critéres de recherche.
+
+        #
+        #Si aucun module ne correspond aux critéres de recherche portant sur une version, Find-Module ne renvoit rien.
+        #On ne sait donc pas différencier le cas où d'autres versions existent mais pas celle demandée et le cas où aucune version du module existe dans le repository.
+        # (Elle peut exister mais ailleurs). Le module sera alors considéré comme externe.
+        #
+        #Update-ModuleManifest ne complète pas le contenu de la clé -ExternalModuleDependencies mais remplace le contenu existant.
+
+        Write-Verbose  "Find-ExternalModuleDependencies : $($Module|Out-String)"
+        $Module.Add('Repository',$Repository)
+
+        Find-Module @Module -EA Stop > $null
+        } catch {
+            Write-Debug "Not found : $($Params|Out-String)"
+            if (($_.CategoryInfo -match '^ObjectNotFound') -and ($_.FullyQualifiedErrorId -match '^NoMatchFoundForCriteria') )
+            {
+                #Insert into ExternalModuleDependencies
+               Write-Output $Module.Name
+            }
+            else
+            {throw $_}
+        }
+     }
+ )
+ if ($EMD.Count -ne 0)
+ {
+    #todo bug:
+    #https://windowsserver.uservoice.com/forums/301869-powershell/suggestions/19210978-update-modulemanifest-externalmoduledependencies
+   if ($EMD.Count -eq 1)
+   { $EMD +=$EMD[0] }
+   Write-Verbose "ExternalModuleDependencies : $EMD"
+   Return $EMD
+ }
+}
+
+Function Read-RequiredModules {
+#Reads a module manifest and returns the contents of the RequiredModules key.
+   Param (
+     [Parameter(Mandatory = $true)]
+     $Data,
+
+     [switch] $AsHashTable,
+
+     [switch] $AsModuleSpecification
+  )
+
+  $ImportManifestData={
+  Param (
+     [Parameter(Mandatory = $true)]
+     [Microsoft.PowerShell.DesiredStateConfiguration.ArgumentToConfigurationDataTransformation()]
+     $data
+  )
+   return $data
+ }
+
+ try {
+  $ErrorActionPreference='Stop'
+  $Manifest=&$ImportManifestData $Data
+ } catch {
+     throw (New-Object System.Exception -ArgumentList "Unable to read the manifest $Data",$_.Exception)
+ }
+ if (($Manifest.RequiredModules -eq $null) -or ($Manifest.RequiredModules.Count -eq 0))
+ { Write-Verbose "RequireModules empty or unknown : $Data" }
+
+ Foreach ($ModuleInfo in $Manifest.RequiredModules)
+ {
+    #Microsoft.PowerShell.Commands.ModuleSpecification : 'RequiredVersion' need PS version 5.0
+    #Instead, one build splatting for Find-Module
+   Write-Debug "$($ModuleInfo|Out-String)"
+   if ($ModuleInfo -is [System.Collections.Hashtable])
+   {
+     $ModuleInfo.Add('Name',$ModuleInfo.ModuleName)
+     $ModuleInfo.Remove('ModuleName')
+     if ($ModuleInfo.Contains('ModuleVersion'))
+     {$ModuleInfo.Add('MinimumVersion',$ModuleInfo.ModuleVersion)}
+     $ModuleInfo.Remove('ModuleVersion')
+     $ModuleInfo.Remove('GUID')
+   }
+   else
+   {
+      $Name,$ModuleInfo=$ModuleInfo,@{}
+      $ModuleInfo.'Name'=$Name
+   }
+   if($AsHashTable)
+   { Write-Output $ModuleInfo }
+   elseif ($AsModuleSpecification)
+   { New-Object -TypeName Microsoft.PowerShell.Commands.ModuleSpecification -ArgumentList $ModuleInfo }
+   else
+   { New-Object PSObject -Property $ModuleInfo }
+ }
+}
+
 Properties {
+    # ----------------------- Misc configuration properties ---------------------------------
+
+    # Specifies the paths of the installed scripts
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $PSGetInstalledPath=GetPowershellGetPath
+
+    # Used by Edit-Template inside the 'RemoveConditionnal' task.
+    # Valid values are 'Debug' or 'Release'
+    # 'Release' : Remove the debugging/trace lines, include file, expand scriptblock, clean all directives
+    # 'Debug' : Do not change anything
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    [ValidateSet('Release','Debug')]  $BuildConfiguration='Release'
+
+    #To manage the ApiKey differently
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $isCIEnvironment=Test-CIEnvironment
+
     # ----------------------- Basic properties --------------------------------
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $ProjectName= 'Log4Posh'
-    
+    $ProjectName= 'Template'
+
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $ProjectUrl= 'https://github.com/LaurentDardenne/Log4Posh.git'
+    $ProjectUrl= 'https://github.com/LaurentDardenne/Template.git'
 
     # The root directories for the module's docs, src and test.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
@@ -149,6 +314,10 @@ Properties {
     $InstallPath = Join-Path (Split-Path $profile.CurrentUserAllHosts -Parent) `
                              "Modules\$ModuleName\$((Test-ModuleManifest -Path $SrcRootDir\$ModuleName.psd1).Version.ToString())"
 
+    #PSSA rules have no function to document
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $IsHelpGeneration=$true
+
     # Default Locale used for help generation, defaults to en-US.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $DefaultLocale = 'en-US'
@@ -157,13 +326,15 @@ Properties {
     # Typically you wouldn't put any file under the src dir unless the file was going to ship with
     # the module. However, if there are such files, add their $SrcRootDir relative paths to the exclude list.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $Exclude = @('Log4Posh.psm1','Log4Posh.psd1')
+    $Exclude = @("$ModuleName.psm1","$ModuleName.psd1",'*.bak')
+    if ($BuildConfiguration -eq 'Release')
+    { $Exclude +="${ModuleName}Log4Posh.Config.xml"}
 
     # ------------------ Script analysis properties ---------------------------
 
     # Enable/disable use of PSScriptAnalyzer to perform script analysis.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $ScriptAnalysisEnabled = $false
+    $ScriptAnalysisEnabled = $true
 
     # When PSScriptAnalyzer is enabled, control which severity level will generate a build failure.
     # Valid values are Error, Warning, Information and None.  "None" will report errors but will not
@@ -181,23 +352,23 @@ Properties {
     # Module names for additionnale custom rule
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     [String[]]$PSSACustomRules=@(
-      GetModulelePath -Name OptimizationRules
-      GetModulelePath -Name PSParameterSetRules
-    ) 
+      (GetModulePath -Name OptimizationRules)
+      (GetModulePath -Name ParameterSetRules)
+    )
 
     #MeasureLocalizedData
      #Full path of the module to control
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $LocalizedDataModule="$SrcRootDir\Log4Posh.psm1"
+    $LocalizedDataModule="$SrcRootDir\$ModuleName.psm1"
 
-     #Full path of the function to control. If $null is specified only the primary module is analyzed. 
+     #Full path of the function to control. If $null is specified only the primary module is analyzed.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $LocalizedDataFunctions=$null
 
     #Cultures names to test the localized resources file.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $CulturesLocalizedData='en-US','fr-FR' 
- 
+    $CulturesLocalizedData='en-US','fr-FR'
+
     # ------------------- Script signing properties ---------------------------
 
     # Set to $true if you want to sign your scripts. You will need to have a code-signing certificate.
@@ -228,7 +399,7 @@ Properties {
 
     # Enable/disable generation of a catalog (.cat) file for the module.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $CatalogGenerationEnabled = $true
+    $CatalogGenerationEnabled = $false
 
     # Select the hash version to use for the catalog file: 1 for SHA1 (compat with Windows 7 and
     # Windows Server 2008 R2), 2 for SHA2 to support only newer Windows versions.
@@ -239,7 +410,7 @@ Properties {
 
     # Enable/disable Pester code coverage reporting.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $CodeCoverageEnabled = $true
+    $CodeCoverageEnabled = $false
 
     # CodeCoverageFiles specifies the files to perform code coverage analysis on. This property
     # acts as a direct input to the Pester -CodeCoverage parameter, so will support constructions
@@ -259,16 +430,20 @@ Properties {
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $PublishRepository = $RepositoryName
 
+    # Name of the repository for the development version
+    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
+    $Dev_PublishRepository = 'DevOttoMatt'
+
     # Path to encrypted APIKey file.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $NuGetApiKeyPath = "$env:LOCALAPPDATA\Plaster\SecuredBuildSettings\$PublishRepository-ApiKey.clixml"
-                                        
+
     # Path to the release notes file.  Set to $null if the release notes reside in the manifest file.
     # The contents of this file are used during publishing for the ReleaseNotes parameter.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $ReleaseNotesPath = "$PSScriptRoot\ReleaseNotes.md"
-    
-  
+    $ReleaseNotesPath = "$PSScriptRoot\ChangeLog.md"
+
+
     # ----------------------- Misc properties ---------------------------------
 
     # In addition, PFX certificates are supported in an interactive scenario only,
@@ -287,73 +462,76 @@ Properties {
     # a path.  This parameter is passed through to Invoke-Pester's -OutputFormat parameter.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $TestOutputFormat = "NUnitXml"
-    
-    # Specifies the paths of the installed scripts
-    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $PSGetInstalledPath=GetPowershellGetPath
-    
+
     # Execute or nor 'TestBOM' task
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
     $isTestBom=$true
-
-    # Used by Edit-Template inside the 'RemoveConditionnal' task.
-    # Valid values are 'Debug' or 'Release'
-    # 'Release' : remove the debugging/trace lines, include file, expand scriptblock, clean all directives
-    # 'Debug' : do not remove
-    [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $BuildConfiguration='Release'
-
 }
 
 ###############################################################################
 # Customize these tasks for performing operations before and/or after file staging.
 ###############################################################################
 
-Task RemoveConditionnal {
-#Traite les pseudo directives de parsing conditionnelle   
-  
-   $VerbosePreference='Continue'
-   Import-Module Template
+Task RemoveConditionnal -requiredVariables BuildConfiguration, ModuleOutDir{
+#Traite les pseudo directives de parsing conditionnelle
+
+ #bug scope/limit PSake ?
+ # The first call works, but not the followings
+ #-Force reload the ScriptToProcess
+ Import-Module Template -Force
+
+ try {
    $TempDirectory=New-TemporaryDirectory
    $ModuleOutDir="$OutDir\$ModuleName"
 
    Write-Verbose "Build with '$BuildConfiguration'"
-   Get-ChildItem  "$SrcRootDir\Log4Posh.psm1","$SrcRootDir\Log4Posh.psd1"|
+   Get-ChildItem  "$SrcRootDir\$ModuleName.psm1","$SrcRootDir\$ModuleName.psd1"|
     Foreach-Object {
       $Source=$_
       $TempFileName="$TempDirectory\$($Source.Name)"
       Write-Verbose "Edit : $($Source.FullName)"
       Write-Verbose " to  : $TempFileName"
       if ($BuildConfiguration -eq 'Release')
-      { 
-         #Supprime les lignes de code de Debug et de test
-         #On traite une directive et supprime les lignes demandées. 
-         #On inclut les fichiers.       
-        Get-Content -Path $Source -Encoding UTF8|
-         Edit-String -Setting  $TemplateDefaultSettings|
-         ForEach-Object { $_ -split '(?m)$' }|
-         Edit-Template -ConditionnalsKeyWord 'DEBUG' -Include -Remove -Container $Source|
-         Edit-Template -Clean| 
-         Set-Content -Path $TempFileName -Force -Encoding UTF8        
+      {
+
+         #Transforme les directives %Scriptblock%
+         $Lines=Get-Content -Path $Source -Encoding UTF8|
+                 Edit-String -Setting $TemplateDefaultSettings|
+                 Out-ArrayOfString
+
+         #On supprime les lignes de code de Debug,
+         #   supprime les lignes demandées,
+         #   inclut les fichiers,
+         #   nettoie toutes les directives restantes.
+
+         ,$Lines|
+           Edit-Template -ConditionnalsKeyWord 'DEBUG' -Include -Remove -Container $Source|
+           Edit-Template -Clean|
+           Set-Content -Path $TempFileName -Force -Encoding UTF8 -verbose:($VerbosePreference -eq 'Continue')
       }
       elseif ($BuildConfiguration -eq 'Debug')
-      { 
-         #On ne traite aucune directive et on ne supprime rien. 
+      {
+         #On ne traite aucune directive et on ne supprime rien.
          #On inclut uniquement les fichiers.
 
          #'NODEBUG' est une directive inexistante et on ne supprime pas les directives
          #sinon cela génére trop de différences en cas de comparaison de fichier
-        Get-Content -Path $Source -ReadCount 0 -Encoding UTF8|
-         Edit-String -Setting  $TemplateDefaultSettings|
-         ForEach-Object { $_ -split '(?m)$' }|
-         Edit-Template -ConditionnalsKeyWord 'NODEBUG' -Include -Container $Source|
-         Set-Content -Path $TempFileName -Force -Encoding UTF8       
+         $Lines=Get-Content -Path $Source -Encoding UTF8|
+                  Edit-String -Setting  $TemplateDefaultSettings|
+                  Out-ArrayOfString
+
+         ,$Lines|
+           Edit-Template -ConditionnalsKeyWord 'NODEBUG' -Include -Container $Source|
+           Set-Content -Path $TempFileName -Force -Encoding UTF8 -verbose:($VerbosePreference -eq 'Continue')
       }
       else
       { throw "Invalid configuration name '$BuildConfiguration'" }
-     
-      Copy-Item -Path $TempDirectory\* -Destination $ModuleOutDir -Recurse -Verbose:$VerbosePreference
+     Copy-Item -Path $TempFileName -Destination $ModuleOutDir -Recurse -Verbose:($VerbosePreference -eq 'Continue') -EA Stop
     }#foreach
+  } finally {
+    if (Test-Path $TempDirectory)
+    { Remove-Item $TempDirectory -Recurse -Force -Verbose:($VerbosePreference -eq 'Continue')  }
+  }
 }
 
 
@@ -362,36 +540,36 @@ Task BeforeStageFiles -Depends RemoveConditionnal{
 }
 
 #Verifying file encoding BEFORE generation
-Task TestBOM -Precondition { $isTestBom } -requiredVariables PSGetInstalledPath {
+Task TestBOM -Precondition { $isTestBom } -requiredVariables SrcRootDir {
 #La régle 'UseBOMForUnicodeEncodedFile' de PSScripAnalyzer s'assure que les fichiers qui
 # ne sont pas encodés ASCII ont un BOM (cette régle est trop 'permissive' ici).
 #On ne veut livrer que des fichiers UTF-8.
 
   Write-verbose "Validation de l'encodage des fichiers du répertoire : $SrcRootDir"
-  
+
   Import-Module DTW.PS.FileSystem
-  
-  $InvalidFiles=Test-BOMFile.ps1 -path $SrcRootDir 
+
+  $InvalidFiles=Test-BOMFile -path $SrcRootDir
   if ($InvalidFiles.Count -ne 0)
-  { 
+  {
      $InvalidFiles |Format-List *
      Throw "Des fichiers ne sont pas encodés en UTF8 ou sont codés BigEndian."
   }
-} 
+}
 
-Task TestLocalizedData -ContinueOnError {
+Task TestLocalizedData  {
     Import-module MeasureLocalizedData
 
     if ($null -eq $LocalizedDataFunctions)
-    {$Result ='en-US','fr-FR'|Measure-ImportLocalizedData -Primary $LocalizedDataModule }
+    {$Result = $CulturesLocalizedData|Measure-ImportLocalizedData -Primary $LocalizedDataModule }
     else
-    {$Result ='en-US','fr-FR'|Measure-ImportLocalizedData -Primary $LocalizedDataModule -Secondary $LocalizedDataFunctions}
+    {$Result = $CulturesLocalizedData|Measure-ImportLocalizedData -Primary $LocalizedDataModule -Secondary $LocalizedDataFunctions}
     if ($Result.Count -ne 0)
-    { 
+    {
       $Result
-      throw 'One or more MeasureLocalizedData errors were found. Build cannot continue!' 
+      throw 'One or more MeasureLocalizedData errors were found. Build cannot continue!'
     }
-}     
+}
 
 # Executes after the StageFiles task.
 Task AfterStageFiles -Depends TestBOM, TestLocalizedData {
@@ -406,16 +584,16 @@ Task BeforeBuild {
 }
 
 # #Verifying file encoding AFTER generation
-Task TestBOMAfterAll -Precondition { $isTestBom } -requiredVariables PSGetInstalledPath { 
-#   Import-Module DTW.PS.FileSystem
+Task TestBOMAfterAll -Precondition { $isTestBom } -requiredVariables OutDir {
+   Import-Module DTW.PS.FileSystem
 
-#   Write-Host "Validation de l'encodage des fichiers du répertoire : $OutDir""
-#   $InvalidFiles=Test-BOMFile.ps1 -path $OutDir
-#   if ($InvalidFiles.Count -ne 0)
-#   { 
-#      $InvalidFiles |Format-List *
-#      Throw "Des fichiers ne sont pas encodés en UTF8 ou sont codés BigEndian."
-#   }
+  Write-Verbose  "Validation finale de l'encodage des fichiers du répertoire : $OutDir"
+  $InvalidFiles=Test-BOMFile -path $OutDir
+  if ($InvalidFiles.Count -ne 0)
+  {
+     $InvalidFiles |Format-List *
+     Throw "Des fichiers ne sont pas encodés en UTF8 ou sont codés BigEndian."
+  }
 }
 
 # Executes after the Build task.
@@ -475,13 +653,37 @@ Task AfterInstall {
 ###############################################################################
 
 # Executes before the Publish task.
-Task BeforePublish {
+Task BeforePublish -requiredVariables Projectname, OutDir, ModuleName, PublishRepository, Dev_PublishRepository {
+    $ManifestPath="$OutDir\$ModuleName\$ModuleName.psd1"
+    if ( (-not [string]::IsNullOrWhiteSpace($Dev_PublishRepository)) -and ($PublishRepository -eq $Dev_PublishRepository ))
+    {
+        #Increment  the module version for dev repository only
+        Import-Module BuildHelpers
+        $SourceLocation=(Get-PSRepository -Name $PublishRepository).SourceLocation
+        "Get the latest version for '$ProjectName' in '$SourceLocation'"
+        $Version = Get-NextNugetPackageVersion -Name $ProjectName -PackageSourceUrl $SourceLocation
+
+        $ModuleVersion=(Test-ModuleManifest -path $ManifestPath).Version
+        # If no version exists, take the current version
+        $isGreater=$Version -gt $ModuleVersion
+        "Update the module metadata '$ManifestPath' [$ModuleVersion] ? $isGreater "
+        if ($isGreater)
+        {
+           "with the new version : $version"
+           Update-Metadata -Path $ManifestPath  -PropertyName ModuleVersion -Value $Version
+        }
+    }
+
+    $ModuleNames=Read-RequiredModules $ManifestPath -AsHashTable
+     #ExternalModuleDependencies
+    $EMD=Find-ExternalModuleDependencies $ModuleNames -Repository $PublishRepository
+    if ($null -ne $EMD)
+    {
+      "Update ExternalModuleDependencies with $($EMD.Name) in '$ManifestPath'"
+      Update-ModuleManifest -path $ManifestPath -ExternalModuleDependencies $EMD
+    }
 }
 
 # Executes after the Publish task.
 Task AfterPublish {
 }
-
-#todo
-#  publier les test : Update-AppveyorTest -Name "PsScriptAnalyzer" -Outcome Passed
-#  publier le résultat du build sur devOttoMatt ( Push-AppveyorArtifact $_.FullName }
