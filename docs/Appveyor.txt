@@ -1,12 +1,9 @@
-﻿todo clone projet /nouveau projet 
-
-Localization : + langues
-
-Variables
+﻿
+Pour chaque projet Apppveyor, ajouter les variables : 
 
   Setting WebPage :
   (https://ci.appveyor.com/project/LaurentDardenne/template/settings/environment)
-    MY_APPVEYOR_GalleryName 
+    MY_APPVEYOR_GalleryName  : soit 'DevMyGet' soit 'MyGet'
   
   https://github.com/LaurentDardenne/Template/blob/master/appveyor.yml 
   environment:
@@ -18,6 +15,30 @@ Variables
 1) Install
 2) publish
 Gestion des erreurs
+
+APPVEYOR
+ne pas utiliser Log4Posh en Release
+Eviter les dépendances mutuelles
+La construction du module 'Template' utilise le module 'ParameterSetRule' 
+ET 
+La construction du module 'ParameterSetRule' utilise le module 'Template' 
+
+Module se validant lui même...
+On doit d'abord le publier sur MyGet par une exécution locale avec un numéro de version inférieure à l'existant
+
+On ne connait pas l'association MODULE-REPOSITORY.
+
+si on publie sur PSGallery, la clé  n'est pas nécessaire, c'est le même repo
+si on publie sur Myget, la clé est nécessaire, ce n'est pas le même repo
+si on publie sur DevMyget, la clé est nécessaire, ce n'est pas le même repo MAIS les dépendances sont sur Myget ....
+
+1- Construit les dépendances du build
+  ou les trouver ?
+  comment les récupérer
+  comment les installer ?
+  
+2- Construit le projet
+
 
 
 
