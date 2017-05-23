@@ -1,0 +1,4 @@
+﻿Régle de rétention des packages du repo Dev
+1 version seulement
+
+Pour le moment les Apikey sont unique pour les feeds OttoMatt et DevOttoMatt
