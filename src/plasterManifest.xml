@@ -31,10 +31,6 @@
 
     <content>
         <message>&#10;&#10;Scaffolding your PowerShell Module...&#10;&#10;&#10;</message>
-Assets
-Docs
-src
-Test
 
 appveyor.yml
 
@@ -53,9 +49,6 @@ Install.ps1
 Install.psake.ps1
 Install.settings.ps1
 
-
-Log4Posh.library-ms
-Log4Posh.tdl
 
         <file source='ScriptAnalyzerSettings.psd1'
               destination=''/>
