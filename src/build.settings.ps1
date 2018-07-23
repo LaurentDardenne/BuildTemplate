@@ -101,13 +101,13 @@ function Test-BOMFile{
         ForEach-Object  {
         Write-Verbose "Test BOM for '$($_.FullName)'"
         # create storage object
-        $EncodingInfo = 1 | Select FileName,Encoding,BomFound,Endian
+        $EncodingInfo = 1 | Select-Object FileName,Encoding,BomFound,Endian
         # store file base name (remove extension so easier to read)
         $EncodingInfo.FileName = $_.FullName
         # get full encoding object
         $Encoding = Get-DTWFileEncoding $_.FullName
         # store encoding type name
-        $EncodingInfo.Encoding = $EncodingTypeName = $Encoding.ToString().SubString($Encoding.ToString().LastIndexOf(".") + 1)
+        $EncodingInfo.Encoding = $Encoding.ToString().SubString($Encoding.ToString().LastIndexOf(".") + 1)
         # store whether or not BOM found
         $EncodingInfo.BomFound = "$($Encoding.GetPreamble())" -ne ""
         $EncodingInfo.Endian = ""
@@ -138,15 +138,18 @@ Function Find-ExternalModuleDependencies {
 <#
     .SYNOPSIS
      Détermine, selon le repository courant, le ou les modules externes dépendant.
-     Les nom de module retiournés pourront être inséré dans la clé 'ExternalModuleDependencies' d'un manifest de module
+     Les noms de module retournés pourront être insérés dans la clé 'ExternalModuleDependencies' d'un manifest de module
 
     .EXAMPLE
      $ManifestPath='.\OptimizationRules.psd1'
-     $ModuleNames=Read-RequiredModules $ManifestPath -AsHashTable
+     $ModuleNames=Read-ModuleDependency $ManifestPath -AsHashTable
      $EMD=Find-ExternalModuleDependencies $ModuleNames -Repository $PublishRepository
 #>
   Param(
-      [System.Collections.Hashtable[]] $ModuleSpecification,
+      [ValidateNotNullOrEmpty()]
+     [System.Collections.Hashtable[]] $ModuleSpecification,
+
+       [ValidateNotNullOrEmpty()]
      [String] $Repository
 )
 
@@ -210,8 +213,29 @@ Function Find-ExternalModuleDependencies {
  }
 }
 
-Function Read-RequiredModules {
+function Import-ManifestData {
+ #Read a .psd1 into a hashtable
+    [CmdletBinding()]
+    Param (
+        [Parameter(Mandatory = $true)]
+        [Microsoft.PowerShell.DesiredStateConfiguration.ArgumentToConfigurationDataTransformation()]
+        $Data
+    )
+    return $Data
+}
+
+Function Read-ModuleDependency {
 #Reads a module manifest and returns the contents of the RequiredModules key.
+# todo read NestedModules :
+# The RequiredModules and NestedModules lists of PSModuleInfo are used in preparing the dependency list of a module to be published.
+#
+#https://github.com/PowerShell/PSScriptAnalyzer/issues/546
+#With that in mind, this should only warn when:
+#
+# (a) a module manifest defines one or more NestedModules; and
+# (b) the same manifest does not define RootModule/ModuleToProcess; and
+# (c) one of the NestedModules is a script or binary module in the same folder as the manifest with the same name.
+
    Param (
      [Parameter(Mandatory = $true)]
      $Data,
@@ -221,18 +245,9 @@ Function Read-RequiredModules {
      [switch] $AsModuleSpecification
   )
 
-  $ImportManifestData={
-  Param (
-     [Parameter(Mandatory = $true)]
-     [Microsoft.PowerShell.DesiredStateConfiguration.ArgumentToConfigurationDataTransformation()]
-     $data
-  )
-   return $data
- }
-
  try {
   $ErrorActionPreference='Stop'
-  $Manifest=&$ImportManifestData $Data
+  $Manifest=Import-ManifestData $Data
  } catch {
      throw (New-Object System.Exception -ArgumentList "Unable to read the manifest $Data",$_.Exception)
  }
@@ -267,6 +282,104 @@ Function Read-RequiredModules {
  }
 }
 
+Function New-ScriptFileName {
+ [Diagnostics.CodeAnalysis.SuppressMessageAttribute("PSUseShouldProcessForStateChangingFunctions","",
+                                                    Justification="New-ScriptFileName do not change the system state, it create only a file name.")]
+  <#
+  .SYNOPSIS
+    Create a new file name from a type data file (.ps1xml).
+    The name of the new file is equal to the "$TargetDirectory\$($File.Basename).ps1"
+  .DESCRIPTION
+    Long description
+  .EXAMPLE
+    PS C:\> $NewFile=ConvertTo-ScriptFileName -File $File -TargetDirectory $TargetDirectory 
+    Explanation of what the example does todo
+  .INPUTS
+    [string]
+  .OUTPUTS
+    [string]
+  .NOTES
+    General notes
+  #>
+  param(
+    # Specifies a path to one or more .ps1xml type data file.
+     [Parameter(Mandatory=$true,
+                Position=0,
+                ValueFromPipeline=$true,
+                HelpMessage="Path to one or more .ps1Xml type data file.")]
+     [Alias("PSPath")]
+     [ValidateNotNullOrEmpty()]
+    [string] $File,
+
+     # The destination directory for news files. The default value is : $env:temp
+      [Parameter(Mandatory=$true)]
+     [ValidateNotNullOrEmpty()]
+    [string] $TargetDirectory
+  
+  )
+  process {
+    $ScriptFile=[System.IO.FileInfo]::New($File)
+    Write-output ("{0}\{1}{2}" -F $TargetDirectory,$ScriptFile.BaseName,'.ps1')
+  }
+}
+ 
+Function Export-ScriptMethod {
+  <#
+  .SYNOPSIS
+    Extract scriptblocs of a ScriptMethod from a type data file (.ps1Xml) and create a new file.
+    The name of the new file is equal to the "$TargetDirectory\$($File.Basename).ps1"
+    This file can be used with Invoke-ScriptAnalyzer.
+  .DESCRIPTION
+    Long description
+  .INPUTS
+    [string]
+  .OUTPUTS
+    [string]
+  .NOTES
+    General notes
+  #>
+  param(
+    # Specifies a path to one or more .ps1xml type data file.
+     [Parameter(Mandatory=$true,
+                Position=0,
+                ValueFromPipeline=$true,
+                HelpMessage="Path to one or more .ps1Xml type data file.")]
+     [Alias("PSPath")]
+     [ValidateNotNullOrEmpty()]
+    [string] $File,
+
+     # The destination directory for news files. The default value is : $env:temp
+     [ValidateNotNullOrEmpty()]
+    [string] $TargetDirectory=$env:TEMP
+  
+  )
+  process {
+    Write-Debug "Read '$File'"
+    [Xml]$Xml=Get-Content $File
+    #On suppose le fichier xml comme étant un fichier de type Powershell (ETS) valide
+    [int]$Count=0
+    
+    $NewFile=New-ScriptFileName -File $File -TargetDirectory $TargetDirectory
+    
+    $Script=New-Object System.Text.StringBuilder "# $File`r`n"
+    foreach ($Type in $Xml.Types.Type)
+    { 
+      foreach ($ScriptMethod in $Type.Members.ScriptMethod)
+      { 
+          Write-Debug "Extract ScriptMethod : '$($Type.Name).$($ScriptMethod.Name)' "
+          $Script.AppendLine("# $($Type.Name)") >$null
+          $Script.Append("Function Name$Count") >$null
+          $Script.AppendLine(".$($ScriptMethod.Name) {") >$null
+          $Script.AppendLine($ScriptMethod.Script+"`r`n}") >$null  
+          $count++
+      }
+    }
+    Write-Debug "Write '$NewFile'"
+    Set-Content -Value $Script.ToString() -Path $NewFile -Encoding UTF8
+    Write-output $NewFile
+ }
+}
+
 Properties {
     # ----------------------- Misc configuration properties ---------------------------------
 
@@ -287,10 +400,10 @@ Properties {
 
     # ----------------------- Basic properties --------------------------------
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $ProjectName= 'Template'
+    $ProjectName= '<%=$PLASTER_PARAM_ModuleName%>'
 
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
-    $ProjectUrl= 'https://github.com/LaurentDardenne/Template.git'
+    $ProjectUrl= 'https://github.com/LaurentDardenne/<%=$PLASTER_PARAM_ModuleName%>.git'
 
     # The root directories for the module's docs, src and test.
     [System.Diagnostics.CodeAnalysis.SuppressMessage('PSUseDeclaredVarsMoreThanAssigments', '')]
@@ -596,6 +709,19 @@ Task TestBOMAfterAll -Precondition { $isTestBom } -requiredVariables OutDir {
   }
 }
 
+Task BeforeAnalyze -requiredVariables Projectname, OutDir, ModuleName{
+  #Extract scriptmethod into release directory
+  #So, PSScriptAnalyzer can treate this files.
+    $TDpath="$OutDir\$ModuleName\TypeData"
+    Get-ChildItem "$TDpath\*.ps1xml"|
+     Export-ScriptMethod -TargetDirectory $TDpath >$null
+}
+
+Task AfterAnalyze {
+    #see BeforePublish
+    
+}
+
 # Executes after the Build task.
 Task AfterBuild  -Depends TestBOMAfterAll {
 }
@@ -654,6 +780,9 @@ Task AfterInstall {
 
 # Executes before the Publish task.
 Task BeforePublish -requiredVariables Projectname, OutDir, ModuleName, PublishRepository, Dev_PublishRepository {
+     #Suppresses unnecessary files created by BeforeAnalyze task
+    Get-ChildItem "$OutDir\$ModuleName\TypeData\*.ps1"| Remove-item
+   
     $ManifestPath="$OutDir\$ModuleName\$ModuleName.psd1"
     if ( (-not [string]::IsNullOrWhiteSpace($Dev_PublishRepository)) -and ($PublishRepository -eq $Dev_PublishRepository ))
     {
@@ -674,13 +803,16 @@ Task BeforePublish -requiredVariables Projectname, OutDir, ModuleName, PublishRe
         }
     }
 
-    $ModuleNames=Read-RequiredModules $ManifestPath -AsHashTable
+    $ModuleNames=Read-ModuleDependency $ManifestPath -AsHashTable
      #ExternalModuleDependencies
-    $EMD=Find-ExternalModuleDependencies $ModuleNames -Repository $PublishRepository
-    if ($null -ne $EMD)
+    if ($null -ne $ModuleNames)
     {
-      "Update ExternalModuleDependencies with $($EMD.Name) in '$ManifestPath'"
-      Update-ModuleManifest -path $ManifestPath -ExternalModuleDependencies $EMD
+        $EMD=Find-ExternalModuleDependencies $ModuleNames -Repository $PublishRepository
+        if ($null -ne $EMD)
+        {
+          "Update ExternalModuleDependencies with $($EMD.Name) in '$ManifestPath'"
+          Update-ModuleManifest -path $ManifestPath -ExternalModuleDependencies $EMD
+        }
     }
 }
 
